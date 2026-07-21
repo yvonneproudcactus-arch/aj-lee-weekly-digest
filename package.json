@@ -1,0 +1,16 @@
+{
+  "name": "aj-lee-weekly-digest",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Weekly Melbourne real estate news digest for AJ Lee Property Group — fetches news, drafts blog + caption with Claude, builds a docx, emails it.",
+  "scripts": {
+    "digest": "node scripts/generate-digest.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.0",
+    "docx": "^9.1.0",
+    "resend": "^4.0.0",
+    "rss-parser": "^3.13.0"
+  }
+}
