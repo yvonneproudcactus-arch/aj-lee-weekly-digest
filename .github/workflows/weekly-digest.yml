@@ -1,0 +1,33 @@
+name: Weekly AJ Lee Real Estate Digest
+
+on:
+  schedule:
+    # 21:00 UTC Sunday = 7am AEST / 8am AEDT Monday in Melbourne.
+    # GitHub Actions cron is always UTC — shift this by 1 hour around
+    # daylight saving changes (early Oct and early Apr) if you want it
+    # to land at exactly 7am local year-round.
+    - cron: "0 21 * * 0"
+  workflow_dispatch: {} # lets you click "Run workflow" in the Actions tab to test manually
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Generate and send digest
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+        run: npm run digest
