@@ -28,7 +28,6 @@ import fs from "node:fs";
 
 const FEEDS = [
   "https://propertyupdate.com.au/feed/",
-  "https://www.smartpropertyinvestment.com.au/rss",
   // Broad fallback via Google News so there's always *something* to work with
   "https://news.google.com/rss/search?q=Melbourne%20real%20estate%20OR%20rental%20OR%20property%20when:7d&hl=en-AU&gl=AU&ceid=AU:en",
 ];
@@ -142,7 +141,7 @@ Respond with ONLY valid JSON, no markdown fences, no preamble, matching exactly 
 
   const message = await anthropic.messages.create({
     model: "claude-sonnet-5",
-    max_tokens: 2000,
+    max_tokens: 4096,
     system,
     messages: [
       {
@@ -152,8 +151,14 @@ Respond with ONLY valid JSON, no markdown fences, no preamble, matching exactly 
     ],
   });
 
-  const text = message.content.find((b) => b.type === "text")?.text ?? "";
-  return JSON.parse(text);
+const text = message.content.find((b) => b.type === "text")?.text ?? "";
+   const cleaned = text.trim().replace(/^```(json)?/i, "").replace(/```$/, "").trim();
+   try {
+     return JSON.parse(cleaned);
+   } catch (err) {
+     console.error("Raw Claude response that failed to parse:\n", text);
+     throw err;
+   }
 }
 
 // ---------------------------------------------------------------------------
