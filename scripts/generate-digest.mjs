@@ -4,7 +4,8 @@
 // 1. Pulls recent items from a list of property-news RSS feeds
 // 2. Filters/ranks for Melbourne relevance
 // 3. Asks Claude to pick the top 3 landlord-relevant stories and draft a
-//    blog post + social caption, citing each source
+//    STANDALONE blog post + STANDALONE social caption for EACH story,
+//    citing the source
 // 4. Builds a .docx with clickable source links
 // 5. Emails the .docx via Resend
 //
@@ -28,6 +29,7 @@ import fs from "node:fs";
 
 const FEEDS = [
   "https://propertyupdate.com.au/feed/",
+  // "https://www.smartpropertyinvestment.com.au/rss" — confirmed 404, removed. Swap in a replacement here if you find a good one.
   // Broad fallback via Google News so there's always *something* to work with
   "https://news.google.com/rss/search?q=Melbourne%20real%20estate%20OR%20rental%20OR%20property%20when:7d&hl=en-AU&gl=AU&ceid=AU:en",
 ];
@@ -62,7 +64,6 @@ async function fetchAllFeeds() {
       }
       console.log(`Fetched ${feed.items?.length ?? 0} items from ${url}`);
     } catch (err) {
-      // A stale/broken feed shouldn't kill the whole run — log and move on.
       console.warn(`Feed failed, skipping: ${url}\n  -> ${err.message}`);
     }
   }
@@ -70,7 +71,7 @@ async function fetchAllFeeds() {
 }
 
 function isRecent(item) {
-  if (!item.pubDate) return true; // keep undated items rather than drop them
+  if (!item.pubDate) return true;
   const ageDays = (Date.now() - item.pubDate.getTime()) / (1000 * 60 * 60 * 24);
   return ageDays <= MAX_ITEM_AGE_DAYS;
 }
@@ -79,7 +80,7 @@ function relevanceScore(item) {
   const text = `${item.title} ${item.snippet}`.toLowerCase();
   let score = 0;
   for (const kw of RELEVANCE_KEYWORDS) if (text.includes(kw)) score += 1;
-  if (text.includes("melbourne")) score += 5; // heavily favour explicit Melbourne mentions
+  if (text.includes("melbourne")) score += 5;
   return score;
 }
 
@@ -89,7 +90,6 @@ function pickCandidates(items, max = 12) {
     .filter(isRecent)
     .filter((it) => it.title && it.link)
     .filter((it) => {
-      // de-dupe near-identical titles across feeds
       const key = it.title.toLowerCase().slice(0, 60);
       if (seen.has(key)) return false;
       seen.add(key);
@@ -106,7 +106,7 @@ function pickCandidates(items, max = 12) {
 // ---------------------------------------------------------------------------
 
 async function draftDigest(candidates) {
-  const anthropic = new Anthropic(); // reads ANTHROPIC_API_KEY from env
+  const anthropic = new Anthropic();
 
   const candidateList = candidates
     .map((c, i) => `${i + 1}. "${c.title}" — ${c.link}\n   ${c.snippet}`)
@@ -116,28 +116,25 @@ async function draftDigest(candidates) {
 Brand voice: warm, community-oriented, conversational, scroll-stopping but grounded — never hypey or salesy.
 You ONLY use the candidate articles provided. Never invent a story, statistic, or URL that isn't in the candidate list.
 Every story you pick must be Melbourne-relevant (either explicitly about Melbourne, or clearly applicable to Melbourne landlords, e.g. a national RBA rate decision).
+
+You are producing THREE fully independent content packages — one per story. Each package stands alone: its own blog post AND its own social caption, so they can be published separately on different days if needed. Do not write one combined blog or one combined caption.
+
 Respond with ONLY valid JSON, no markdown fences, no preamble, matching exactly this shape:
 {
   "week_of": "string, e.g. July 21, 2026",
-  "stories": [
-    {"headline": "string", "summary": "2-3 sentences", "source_name": "publication name", "source_url": "exact URL from the candidate list"}
-  ],
-  "blog": {
-    "title": "string",
-    "intro": "1-2 sentences",
-    "sections": [
-      {"body": "1 paragraph expanding on story 1, matches stories[0]", "source_url": "same URL as stories[0].source_url"},
-      {"body": "1 paragraph expanding on story 2, matches stories[1]", "source_url": "same URL as stories[1].source_url"},
-      {"body": "1 paragraph expanding on story 3, matches stories[2]", "source_url": "same URL as stories[2].source_url"}
-    ],
-    "closing": "1-2 sentences wrapping up with a call to think about their own portfolio"
-  },
-  "caption": {
-    "text": "1 short paragraph, landlord-facing, includes 1-2 emoji, ends with a light call to comment/engage",
-    "hashtags": "space-separated hashtags starting with #, include #AJLeePropertyGroup"
-  }
+  "posts": [
+    {
+      "headline": "short news headline for this story",
+      "source_name": "publication name",
+      "source_url": "exact URL from the candidate list",
+      "blog_title": "a standalone blog post title for this one story",
+      "blog_paragraphs": ["paragraph 1", "paragraph 2", "paragraph 3 with a closing thought"],
+      "caption_text": "a standalone social caption for this one story, 1 short paragraph, 1-2 emoji, ends with a light call to comment/engage",
+      "hashtags": "space-separated hashtags starting with #, include #AJLeePropertyGroup"
+    }
+  ]
 }
-"stories" must have exactly 3 items, ranked most important first.`;
+"posts" must have exactly 3 items, ranked most important first. Each blog_paragraphs array should have 3-4 entries forming a complete, standalone short blog post (not a fragment of a bigger piece).`;
 
   const message = await anthropic.messages.create({
     model: "claude-sonnet-5",
@@ -151,14 +148,14 @@ Respond with ONLY valid JSON, no markdown fences, no preamble, matching exactly 
     ],
   });
 
-const text = message.content.find((b) => b.type === "text")?.text ?? "";
-   const cleaned = text.trim().replace(/^```(json)?/i, "").replace(/```$/, "").trim();
-   try {
-     return JSON.parse(cleaned);
-   } catch (err) {
-     console.error("Raw Claude response that failed to parse:\n", text);
-     throw err;
-   }
+  const text = message.content.find((b) => b.type === "text")?.text ?? "";
+  const cleaned = text.trim().replace(/^```(json)?/i, "").replace(/```$/, "").trim();
+  try {
+    return JSON.parse(cleaned);
+  } catch (err) {
+    console.error("Raw Claude response that failed to parse:\n", text);
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -187,43 +184,41 @@ async function buildDocx(digest, outPath) {
     }),
     new Paragraph({
       children: [new TextRun({ text: `Week of ${digest.week_of}`, italics: true, color: "666666" })],
+      spacing: { after: 100 },
+    }),
+    new Paragraph({
+      children: [new TextRun({ text: "3 Melbourne stories, each with its own blog post + social caption", italics: true, color: "666666", size: 20 })],
       spacing: { after: 400 },
     }),
-    new Paragraph({ text: "This Week's Top 3 Melbourne Stories for Landlords", heading: HeadingLevel.HEADING_1 }),
   ];
 
-  digest.stories.forEach((s, i) => {
+  digest.posts.forEach((post, i) => {
     children.push(
+      new Paragraph({ border: { top: { style: BorderStyle.SINGLE, size: 6, color: "CCCCCC" } }, spacing: { before: i === 0 ? 0 : 300, after: 300 }, children: [] }),
+      new Paragraph({ text: `Story ${i + 1}: ${post.headline}`, heading: HeadingLevel.HEADING_1 }),
+
       new Paragraph({
-        spacing: { before: 200 },
-        children: [new TextRun({ text: `${i + 1}. ${s.headline}`, bold: true, size: 24 })],
+        children: [new TextRun({ text: `Blog Post ${i + 1}`, bold: true, size: 22, color: "1155CC" })],
+        spacing: { before: 100, after: 100 },
       }),
-      new Paragraph({ children: [new TextRun({ text: s.summary })], spacing: { after: 100 } }),
-      sourceLine(s.source_name, s.source_url),
+      new Paragraph({ children: [new TextRun({ text: post.blog_title, bold: true, size: 26 })], spacing: { after: 200 } }),
     );
-  });
 
-  children.push(
-    new Paragraph({ border: { top: { style: BorderStyle.SINGLE, size: 6, color: "CCCCCC" } }, spacing: { after: 300 }, children: [] }),
-    new Paragraph({ text: "Blog Draft", heading: HeadingLevel.HEADING_1 }),
-    new Paragraph({ children: [new TextRun({ text: digest.blog.title, bold: true, size: 26 })], spacing: { after: 200 } }),
-    new Paragraph({ children: [new TextRun({ text: digest.blog.intro })], spacing: { after: 200 } }),
-  );
+    post.blog_paragraphs.forEach((para) => {
+      children.push(new Paragraph({ children: [new TextRun({ text: para })], spacing: { after: 200 } }));
+    });
 
-  digest.blog.sections.forEach((sec) => {
-    const story = digest.stories.find((s) => s.source_url === sec.source_url);
     children.push(
-      new Paragraph({ children: [new TextRun({ text: sec.body })], spacing: { after: 100 } }),
-      sourceLine(story?.source_name ?? "Source", sec.source_url),
+      sourceLine(post.source_name, post.source_url),
+
+      new Paragraph({
+        children: [new TextRun({ text: `Social Caption ${i + 1}`, bold: true, size: 22, color: "1155CC" })],
+        spacing: { before: 200, after: 100 },
+      }),
+      new Paragraph({ children: [new TextRun({ text: post.caption_text })], spacing: { after: 100 } }),
+      new Paragraph({ children: [new TextRun({ text: post.hashtags, italics: true, color: "666666" })], spacing: { after: 200 } }),
     );
   });
-
-  children.push(
-    new Paragraph({ children: [new TextRun({ text: digest.blog.closing })], spacing: { after: 400 } }),
-    new Paragraph({ text: "Social Caption Draft", heading: HeadingLevel.HEADING_1 }),
-    new Paragraph({ children: [new TextRun({ text: digest.caption.text })], spacing: { after: 200 } }),
-    new Paragraph({ children: [new TextRun({ text: digest.caption.hashtags, italics: true, color: "666666" })] }),
-  );
 
   const doc = new Document({
     sections: [{ properties: { page: { size: { width: 12240, height: 15840 } } }, children }],
@@ -241,13 +236,18 @@ async function emailDigest(outPath, weekOf) {
   const resend = new Resend(process.env.RESEND_API_KEY);
   const fileBuffer = fs.readFileSync(outPath);
 
-  await resend.emails.send({
+  const { data, error } = await resend.emails.send({
     from: process.env.EMAIL_FROM || "onboarding@resend.dev",
     to: process.env.EMAIL_TO,
     subject: `AJ Lee Weekly Real Estate Digest — Week of ${weekOf}`,
-    html: `<p>This week's AJ Lee Property Group Melbourne real estate digest is attached — top 3 stories, a blog draft, and a social caption, ready to review.</p>`,
+    html: `<p>This week's AJ Lee Property Group Melbourne real estate digest is attached — 3 stories, each with its own blog post and social caption, ready to review.</p>`,
     attachments: [{ filename: "AJ-Lee-Weekly-News-Digest.docx", content: fileBuffer }],
   });
+
+  if (error) {
+    throw new Error(`Resend failed to send: ${JSON.stringify(error)}`);
+  }
+  console.log("Email sent, Resend id:", data?.id);
 }
 
 // ---------------------------------------------------------------------------
