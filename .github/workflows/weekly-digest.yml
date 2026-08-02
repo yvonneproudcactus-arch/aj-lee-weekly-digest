@@ -1,13 +1,16 @@
 name: Weekly AJ Lee Real Estate Digest
 
 on:
-  schedule:
-    # 21:00 UTC Sunday = 7am AEST / 8am AEDT Monday in Melbourne.
-    # GitHub Actions cron is always UTC — shift this by 1 hour around
-    # daylight saving changes (early Oct and early Apr) if you want it
-    # to land at exactly 7am local year-round.
-    - cron: "0 21 * * 0"
-  workflow_dispatch: {} # lets you click "Run workflow" in the Actions tab to test manually
+     schedule:
+       # 21:17 UTC Sunday ≈ 7:17am AEST / 8:17am AEDT Monday in Melbourne.
+       # Deliberately off the round hour (not :00) — GitHub Actions cron is
+       # "best effort" and can silently skip triggers during high load,
+       # which is most common right on the hour. Off-hour minutes queue
+       # more reliably. Shift by 1 hour around daylight saving changes
+       # (early Oct and early Apr) if you want it to land at exactly
+       # 7am local year-round.
+       - cron: "17 21 * * 0"
+     workflow_dispatch: {} # lets you click "Run workflow" in the Actions tab to test manually
 
 jobs:
   digest:
