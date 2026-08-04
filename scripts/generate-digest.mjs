@@ -238,7 +238,7 @@ async function emailDigest(outPath, weekOf) {
 
   const { data, error } = await resend.emails.send({
     from: process.env.EMAIL_FROM || "onboarding@resend.dev",
-    to: process.env.EMAIL_TO,
+    to: process.env.EMAIL_TO.split(",").map((e) => e.trim()).filter(Boolean),
     subject: `AJ Lee Weekly Real Estate Digest — Week of ${weekOf}`,
     html: `<p>This week's AJ Lee Property Group Melbourne real estate digest is attached — 3 stories, each with its own blog post and social caption, ready to review.</p>`,
     attachments: [{ filename: "AJ-Lee-Weekly-News-Digest.docx", content: fileBuffer }],
