@@ -1,20 +1,16 @@
 name: Weekly AJ Lee Real Estate Digest
 
 on:
-     schedule:
-       # 21:17 UTC Sunday ≈ 7:17am AEST / 8:17am AEDT Monday in Melbourne.
-       # Deliberately off the round hour (not :00) — GitHub Actions cron is
-       # "best effort" and can silently skip triggers during high load,
-       # which is most common right on the hour. Off-hour minutes queue
-       # more reliably. Shift by 1 hour around daylight saving changes
-       # (early Oct and early Apr) if you want it to land at exactly
-       # 7am local year-round.
-       - cron: "17 21 * * 0"
-     workflow_dispatch: {} # lets you click "Run workflow" in the Actions tab to test manually
+  schedule:
+    # 21:17 UTC Sunday ≈ 7:17am AEST / 8:17am AEDT Monday in Melbourne.
+    - cron: "17 21 * * 0"
+  workflow_dispatch: {}
 
 jobs:
   digest:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -34,3 +30,10 @@ jobs:
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
           EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
         run: npm run digest
+
+      - name: Keep repo active
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit --allow-empty -m "chore: keepalive"
+          git push
